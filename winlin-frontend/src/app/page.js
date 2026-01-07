@@ -8,9 +8,10 @@ export default function GrubPage() {
   const [selected, setSelected] = useState(0);
 
   const options = [
-    'Arch Linux',
-    'Windows Boot Manager',
-    'UEFI Firmware Settings'
+    'Linux',
+    'Windows',
+    'signup - idk if ill do it',
+    'signin -idk if ill do it '
   ];
 
   useEffect(() => {

@@ -13,7 +13,7 @@ export default function Terminal({ lines, input, setInput, onSubmit }) {
       {lines.map((l, i) => <div key={i}>{l}</div>)}
 
       <div className="flex">
-        <span>[user@arch ~]$ </span>
+        <span className='text-green-500 font-bold'>[user@arch ~]$ </span>
         <input
           ref={ref}
           value={input}

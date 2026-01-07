@@ -1,143 +1,139 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import BootScreen from './BootScreen';
 import Terminal from './Terminal';
 import { challenges } from './challenges';
-import { runCommand } from './commandHandler';
+import { handleCommand } from './commandHandler';
+
+const FLAG_REGEX = /FLAG\{[^}]+\}/;
 
 export default function LinuxTerminal() {
-  const [stage, setStage] = useState('boot'); // boot | login | system
+  const [stage, setStage] = useState('boot');
   const [lines, setLines] = useState([]);
   const [input, setInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
   const [challengeIndex, setChallengeIndex] = useState(0);
+  const [detectedFlag, setDetectedFlag] = useState(null);
 
-  const challenge = challenges[challengeIndex];
-
-  // filesystem virtuel par challenge
-  const [fs, setFs] = useState({
-    tree: challenge.fs,
+  const fsRef = useRef({
+    tree: challenges[0].fs,
     cwd: '/home/user'
   });
 
-  // reset fs quand on change de challenge
-  useEffect(() => {
-    setFs({
-      tree: challenge.fs,
-      cwd: '/home/user'
-    });
-    setLines([]);
-    setInput('');
-  }, [challengeIndex]);
+  const challenge = challenges[challengeIndex];
 
-  const submitCommand = () => {
+  const submit = () => {
     if (!input.trim()) return;
 
-    const output = runCommand(input, {
-      fs,
+    const result = handleCommand(input, {
+      fs: fsRef.current,
       challenge
     });
 
-    setLines((prev) => [
-      ...prev,
-      `[user@arch ${fs.cwd}]$ ${input}`
-    ]);
-
-    if (output === '__CLEAR__') {
+    // clear
+    if (result === '__CLEAR__') {
       setLines([]);
-    } else if (output === '__SUBMIT__') {
-      const submittedFlag = input.split(' ')[1];
-
-      if (submittedFlag === challenge.flag) {
-        setLines((prev) => [...prev, '✓ Correct flag']);
-
-        const nextChallenge = challenges[challengeIndex + 1];
-        if (nextChallenge) {
-          setChallengeIndex((i) => i + 1);
-          setStage('login'); // 🔐 password required
-        } else {
-          setLines((prev) => [
-            ...prev,
-            '════════════════════════════',
-            ' All challenges completed 🎉',
-            '════════════════════════════'
-          ]);
-        }
-      } else {
-        setLines((prev) => [...prev, '✗ Wrong flag']);
-      }
-    } else if (output) {
-      setLines((prev) => [...prev, output]);
+      setDetectedFlag(null);
+      setInput('');
+      return;
     }
 
+    // submit
+    if (input.startsWith('submit ')) {
+      const submitted = input.replace('submit ', '').trim();
+
+      if (submitted === challenge.flag) {
+        setLines(p => [...p, '✓ Correct flag!']);
+
+        setTimeout(() => {
+          const next = challenges[challengeIndex + 1];
+          if (!next) {
+            setLines([':) All challenges completed']);
+            return;
+          }
+
+          fsRef.current = {
+            tree: next.fs,
+            cwd: '/home/user'
+          };
+
+          setChallengeIndex(i => i + 1);
+          setLines([]);
+          setDetectedFlag(null);
+        }, 800);
+
+      } else {
+        setLines(p => [...p, '✗ Wrong flag']);
+      }
+
+      setInput('');
+      return;
+    }
+
+    // normal output
+    const outputLines = [
+      `[user@arch ~]$ ${input}`,
+      result
+    ];
+
+    // 🔍 detect flag
+    if (typeof result === 'string') {
+      const match = result.match(FLAG_REGEX);
+      if (match) {
+        setDetectedFlag(match[0]);
+      }
+    }
+
+    setLines(p => [...p, ...outputLines]);
     setInput('');
   };
 
-  // 🔐 LOGIN SCREEN
-  if (stage === 'login') {
-    return (
-      <div className="min-h-screen bg-black text-white p-6 font-mono text-sm">
-        <div>Arch Linux 6.6.10</div>
-        <div className="mt-4">archlinux login: <span className="text-green-400">user</span></div>
+  const copyFlag = async () => {
+    if (!detectedFlag) return;
+    await navigator.clipboard.writeText(detectedFlag);
+  };
 
-        <div className="flex mt-2">
-          <span>Password: </span>
-          <input
-            type="password"
-            value={passwordInput}
-            onChange={(e) => setPasswordInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (passwordInput === challenge.passwordRequired) {
-                  setPasswordInput('');
-                  setStage('system');
-                } else {
-                  setPasswordInput('');
-                }
-              }
-            }}
-            className="bg-transparent outline-none ml-2"
-            autoFocus
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // 🧠 BOOT
   if (stage === 'boot') {
     return <BootScreen onFinish={() => setStage('system')} />;
   }
 
-  // 💻 SYSTEM / TERMINAL
   return (
-    <div className="flex min-h-screen bg-black text-white font-mono text-sm">
-      {/* LEFT PANEL : CHALLENGE INFO */}
+    <div className="flex h-screen bg-black text-white font-mono">
+      {/* LEFT PANEL */}
       <div className="w-1/2 border-r border-gray-700 p-4 overflow-auto">
-        <div className="mb-2 text-green-400">
-          Challenge {challengeIndex + 1}/{challenges.length}
-        </div>
-
-        <h3 className="mb-2">{challenge.title}</h3>
+        <h3 className="text-lg mb-2">
+          Challenge {challengeIndex + 1}: {challenge.title}
+        </h3>
 
         <pre className="text-xs opacity-70 whitespace-pre-wrap">
           {challenge.theory}
         </pre>
 
-        <div className="mt-4 text-xs opacity-60">
-          Allowed commands: {challenge.allowedCommands.join(', ')}
-        </div>
+        {detectedFlag && (
+          <div className="mt-4 p-2 border border-green-500 bg-green-900/20">
+            <div className="text-green-400 text-sm mb-1">
+              Flag detected
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="text-xs">{detectedFlag}</code>
+              <button
+                onClick={copyFlag}
+                className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
+              >
+                📋 Copy
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* RIGHT PANEL : TERMINAL */}
+      {/* TERMINAL */}
       <div className="w-1/2">
         <Terminal
           lines={lines}
           input={input}
           setInput={setInput}
-          onSubmit={submitCommand}
-          cwd={fs.cwd}
+          onSubmit={submit}
         />
       </div>
     </div>
